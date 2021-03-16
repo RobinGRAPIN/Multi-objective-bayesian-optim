@@ -9,3 +9,4 @@ Code &amp; links usefull for my project of multi objective bayesian optimization
 
 ## base for code
 - https://pymoo.org/
+- https://smt.readthedocs.io/en/latest/
