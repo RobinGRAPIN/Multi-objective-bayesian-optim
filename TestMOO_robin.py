@@ -18,6 +18,13 @@ import matplotlib.pyplot as plt
 from smt.utils import compute_rms_error
 from random import randint
 
+#%% Pymoo imports
+
+from pymoo.algorithms.nsga2 import NSGA2
+from pymoo.model.problem import Problem
+from pymoo.optimize import minimize
+from pymoo.visualization.scatter import Scatter
+
 #%% MOO problem definition
 
 ndim = 2
@@ -58,13 +65,6 @@ for iny in range(ny):
 print("theta values for output ", 0, " = ",  list_t[0].optimal_theta)
 print("theta values for output ", 1, " = ",  list_t[1].optimal_theta)
 
-#%% Pymoo imports
-
-from pymoo.algorithms.nsga2 import NSGA2
-from pymoo.model.problem import Problem
-from pymoo.optimize import minimize
-from pymoo.visualization.scatter import Scatter
-
 #%% Optimization
 
 class MyProblem(Problem):
@@ -98,7 +98,7 @@ plot = Scatter()
 plot.add(res.F, color="red")
 plot.show()
 
-#%% real pareto front
+#%% Real Pareto front
 
 class MyProblem_reel(Problem):
 
@@ -130,89 +130,95 @@ res_exact = minimize(problem_exact,
 plot = Scatter()
 plot.add(res_exact.F, color="red")
 plot.show()
-# résultat très similaire au plot précédent
+# résultat très similaire au plot précédent avec 100 gen de 100
 
-#%% test zone
-def funfun(x, out, *args, **kwargs):
-    out["F"] = [1,1]
-    
-problem._evaluate = funfun
+#%% multi-dimensional activation function
 
-res = minimize(problem,
-               algorithm,
-               ("n_gen", 100),
-               verbose=True,
-               seed=1)
+from scipy.stats import norm
+
+#pour l'instant qu'en dim 2...en fait sert a rien je dois faire direct sa dérivée ?
+def PI(x, pareto_front , moyennes, sigma ):
+    """
+    Parameters
+    ----------
+    x : list
+        coordonnées du point à évaluer.
+    pareto_front : liste
+        liste des valeurs dans l'espace objectif des points optimaux 
+        du modèle actuel.
+    moyennes : list
+        liste des fonctions moyennes du modèle par objectif à approximer.
+    sigma : list
+        liste des variances des modèles sur chaque objectif.
+
+    Returns
+    -------
+    pi_x : float
+        PI(x) : probabilité que x soit une amélioration.
+    """
+    m = len(pareto_front)
+    pi_x = norm.cdf((pareto_front[0][0] - moyennes[0](x))/sigma[0](x))
+    for i in range(1,m):
+        pi_x += ((norm.cdf((pareto_front[0][i+1] - moyennes[0](x))/sigma[0](x))
+                 - norm.cdf((pareto_front[0][i] - moyennes[0](x))/sigma[0](x)))
+                 * norm.cdf((pareto_front[1][i+1] - moyennes[1](x))/sigma[1](x)))
+    pi_x += (1 - norm.cdf((pareto_front[0][m] - moyennes[0](x))/sigma[0](x)))*norm.cdf((pareto_front[1][m] - moyennes[1](x))/sigma[1](x))
+    return pi_x
+
+def best_points(Y):
+    index = [] #indices of the best points (Pareto)
+    n = len(Y)
+    dominated = [False]*n
+    for y in range(n):
+        if not dominated[y]:
+            for y2 in range(y+1,n):
+                if not dominated[y2]:#if y2 is dominated (by y0), we already compared y0 to y
+                    y_domine_y2 , y2_domine_y = dominate_min(Y[y],Y[y2])
+                    
+                    if y_domine_y2 :
+                        dominated[y2]=True
+                    if y2_domine_y :
+                        dominated[y]=True
+                        break
+            if not dominated[y]:
+                index.append(y)
+    return index
+                    
+# retourne a-domine-b , b-domine-a !! for minimization !!  
+def dominate_min(a,b):
+    a_bat_b = False
+    b_bat_a = False
+    for i in range(len(a)):
+        if a[i] < b[i]:
+            a_bat_b = True
+            if b_bat_a :
+                return False, False # = equivalent points
+        if a[i] > b[i]:
+            b_bat_a = True
+            if a_bat_b :
+                return False, False    
+    if a_bat_b and (not b_bat_a):
+        return True, False
+    if b_bat_a and (not a_bat_b):
+        return False, True
+    return False, False # égaux
+
+#%% testons
+Y = [ [6,9,3] , [1,1,11],[4,4,2]]
+print(dominate_min(Y[0], Y[1]))#false, FAlse
+print(dominate_min(Y[0], Y[2]))#false, true
+print( best_points(Y))# 1,2
+
+#with arrays
+Y = [np.asarray(i) for i in  Y]
+print(dominate_min(Y[0], Y[1]))#false, FAlse
+print(dominate_min(Y[0], Y[2]))#false, true
+print( best_points(Y))# 1,2
+
+#%% test PI
 
 
-#%% Optimization loop incrementing the surrogates
-
-"""
-Pour des problèmes où f serait très chère à évaluer on va
-réduire ndoe (nombre de points du maillage) et évaluer de nouvaux points
-au fur et à mesure de l'optimisation des modèles
-
-On part du modèle à 20 points de sampling précédent, qu'on raffinera à
-chaque exécution de l'algorithme génétique'
-"""
 
 
-class prob(Problem):
-
-    def __init__(self):
-        super().__init__(n_var=2,
-                         n_obj=2,
-                         n_constr=0,
-                         xl=np.array([-2.0, -2.0]),
-                         xu=np.array([2.0, 2.0]),
-                         elementwise_evaluation=True)
-
-    def _evaluate(self, x, out, *args, **kwargs):
-        xx = np.asarray(x).reshape(1, -1) 
-        f1 = list_t[0].predict_values(xx)[0][0]
-        f2 = list_t[1].predict_values(xx)[0][0]
-        out["F"] = [f1, f2]   
 
 
-def minimise(problem, algo, ngen=100, verbose=False,
-             seed=1, itermax = 10, precision = 1e-5):
-    n_iter = 0
-    
-    while (n_iter < itermax):
-        n_iter += 1
-        print("iteration "+n_iter)
-        
-        #minimize current model
-        res = minimize(problem,algo,("n_gen",ngen),verbose=False,seed=seed)
-        
-        #choice of a point of the set for convergence or to be the next one
-        new_x, y_model = select_point(res)
-              
-        #eval of f in this point
-        new_y = [fun1(new_x),fun2(new_x)]
-        
-        #stop criteria on precision (or smthng else)
-        if np.linalg.norm(np.asarray(new_y) - y_model) < precision :
-            break
-        
-        #if not stop criteria update model with new point
-        
-        #and update problem._evaluate
-        def neweval(x, out, *args, **kwargs):
-            xx = np.asarray(x).reshape(1, -1) 
-            f1 = new_model_f1.predict_values(xx)[0][0]
-            f2 = new_model_f2.predict_values(xx)[0][0]
-            out["F"] = [f1, f2]   
-        problem._evaluate = neweval
-        
-        
-    #do we run one last time the GA as it is cheap and we have a new point ?
-    return 
-        
-        
-def select_point(result): #pour l'instant j'en prends juste un au hasard
-    # à terme faire en fonction de leur distance ou autre ?
-    X = res.X
-    Y = res.F
-    i = randint(X.shape[0])
-    return X[i,:], Y[i,:]
