@@ -136,7 +136,7 @@ plot.show()
 
 from scipy.stats import norm
 
-#pour l'instant qu'en dim 2...en fait sert a rien je dois faire direct sa dérivée ?
+#pour l'instant qu'en dim 2
 def PI(x, pareto_front , moyennes, sigma ):
     """
     Parameters
@@ -166,7 +166,7 @@ def PI(x, pareto_front , moyennes, sigma ):
     return pi_x
 
 def best_points(Y):
-    index = [] #indices of the best points (Pareto)
+    index = [] #indexes of the best points (Pareto)
     n = len(Y)
     dominated = [False]*n
     for y in range(n):
@@ -192,7 +192,7 @@ def dominate_min(a,b):
         if a[i] < b[i]:
             a_bat_b = True
             if b_bat_a :
-                return False, False # = equivalent points
+                return False, False # same front
         if a[i] > b[i]:
             b_bat_a = True
             if a_bat_b :
@@ -201,7 +201,7 @@ def dominate_min(a,b):
         return True, False
     if b_bat_a and (not a_bat_b):
         return False, True
-    return False, False # égaux
+    return False, False # same points
 
 #%% testons
 Y = [ [6,9,3] , [1,1,11],[4,4,2]]
@@ -215,9 +215,115 @@ print(dominate_min(Y[0], Y[1]))#false, FAlse
 print(dominate_min(Y[0], Y[2]))#false, true
 print( best_points(Y))# 1,2
 
+aa = np.array([[2.,2.]])
+print([i.predict_values(aa)[0][0] for i in list_t])
+
 #%% test PI
 
 
+
+#%% Optimization loop incrementing the surrogates
+
+"""
+Pour des problèmes où f serait très chère à évaluer on va
+réduire ndoe (nombre de points du maillage) et évaluer de nouvaux points
+au fur et à mesure de l'optimisation des modèles
+"""
+ndim = 2
+ny = 2
+fun1 = Rosenbrock(ndim=ndim)
+fun2 = Branin(ndim=ndim)
+
+def objective(x):
+    return [fun1(x), fun2(x)]
+    
+xlimits = np.array([[-2.0,2.0], [-2.0,2.0]])
+
+def minimise(objective, xlimits, algo=NSGA2(pop_size=100) , ngen=50, 
+             verbose=False, seed=1, itermax = 10, precision = 1e-5,
+              ndoe = 10): #sampling = 'LHS'
+    n_iter = 0    
+    
+    # Construction of the DOE    
+    sampling = LHS(xlimits=xlimits)
+    xt = sampling(ndoe)
+    yt = [fun1(xt), fun2(xt)]
+    
+    #training the model
+    liste=[]
+    for iny in range(ny):
+        t= KRG(theta0=[1e-2]*ndim,print_prediction = False)
+        t.set_training_values(xt,yt[iny])    
+        t.train()
+        liste.append(t)
+    
+    #creation of the pymoo problem on the surrogate model
+    class prob(Problem):
+
+        def __init__(self):
+            super().__init__(n_var=2,
+                             n_obj=2,
+                             n_constr=0,
+                             xl=np.array([-2.0, -2.0]),
+                             xu=np.array([2.0, 2.0]),
+                             elementwise_evaluation=True)
+    
+        def _evaluate(self, x, out, *args, **kwargs):
+            xx = np.asarray(x).reshape(1, -1) 
+            f1 = liste[0].predict_values(xx)[0][0]
+            f2 = liste[1].predict_values(xx)[0][0]
+            out["F"] = [f1, f2]
+    
+    problem = prob()
+
+    #model incrementation loop
+    while (n_iter < itermax):
+        n_iter += 1
+        print("iteration ",n_iter)
+        
+        #minimize current model with GA
+        res = minimize(problem,algo,("n_gen",ngen),verbose=False,seed=seed)
+        
+        #choice of a point of the set for convergence or to be the next one
+        new_x, y_model = select_point(res)
+              
+        #eval of f in this point
+        new_y = objective(np.array([new_x]))
+        
+        #stop criteria on precision (or smthng else)
+        #if np.linalg.norm(new_y - y_model) < precision :
+         #   return res
+        
+        #update model with the new point
+        for i in range(len(yt)):            
+            yt[i] = np.atleast_2d(np.append(yt[i],new_y[i],axis=0))
+        xt = np.atleast_2d(np.append(xt,np.array([new_x]),axis=0))
+
+        for iny in range(ny):
+            t= KRG(theta0=[1e-2]*ndim,print_prediction = False,print_global=False)
+            t.set_training_values(xt,yt[iny])        
+            t.train()
+            liste[iny]=t
+        
+    #run GA to the best model
+    return minimize(problem,algo,("n_gen",ngen),verbose=False,seed=seed)
+        
+        
+def select_point(result): #pour l'instant j'en prends juste un au hasard
+    # à terme faire en fonction de leur distance ? ou autre ?
+    X = result.X
+    Y = result.F
+    i = randint(0,X.shape[0])
+    return X[i,:], Y[i,:]
+
+#%% test and visualization
+
+resultat= minimise(objective, xlimits,ngen=20, algo=NSGA2(pop_size=50))
+
+#visualisation of the Pareto front
+plot = Scatter()
+plot.add(resultat.F, color="red")
+plot.show()
 
 
 
