@@ -1,5 +1,10 @@
 # Multi-objective-bayesian-optim
+
+This repo is the code I create for the SMT project, especially for mult-objective optimization of black-box functions. To see the global project : https://smt.readthedocs.io/en/latest/. Check the notebook tutorial about how to use MOO.
+
+
 Code &amp; links usefull for my project of multi objective bayesian optimization
+
 
 ## global project in which this one is included
 - https://www.agile4.eu
