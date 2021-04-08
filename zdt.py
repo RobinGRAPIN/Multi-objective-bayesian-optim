@@ -12,7 +12,7 @@ ZDT toolkit
 x = {x1.. xn}
 y = {x1.. xj} = {y1.. yj} #for simplicity, here, j = Int(n/2)
 z = {x(j+1).. xn} = {z1.. zk}
-fonctions test de la forme :
+Testing functions with the shape :
     f1 : y -> f1(y)
     f2 : y,z -> g(z)h(f1(y),g(z))
 xbounds = [0,1]**n
@@ -27,9 +27,9 @@ class ZDT(Problem):
     def _initialize(self):
         self.options.declare("ndim", 2, types=int)
         self.options.declare("name", "ZDT", types=str)
-        self.options.declare("type",1,values=[1,2,3,4,5], type =int)#one of the 5 test functions
+        self.options.declare("type",1,values=[1,2,3,4,5], types =int)#one of the 5 test functions
         
-    def evaluate(self, x):
+    def _evaluate(self, x, kx):#kx useless
         """
         Arguments
         ---------
@@ -49,22 +49,22 @@ class ZDT(Problem):
         f2 = np.zeros((ne,1))
         
         if self.options["type"] <5 :
-            f1 = x[:,0]
+            f1[:,0] = x[:,0]
         else :
-            f1 = 1 - np.exp(-4*x[:,0]) * np.sin(6*np.pi*x[:,0])**6
+            f1[:,0] = 1 - np.exp(-4*x[:,0]) * np.sin(6*np.pi*x[:,0])**6
         
         #g
         g = np.zeros((ne,1))
         if self.options["type"] < 4:
             for i in range(ne):
-                g[i,0] = 1 + 9 / (nx -j) * sum(x[i, j+1 : nx])
+                g[i,0] = 1 + 9 / (nx -j) * sum(x[i, j : nx])
         elif self.options["type"] == 4:
             for i in range(ne):
-                g[i,0] = 1 + 10*(nx -j)+ sum(x[i, j+1 : nx]**2 - 10*np.cos(4*np.pi*x[i, j+1 : nx]))
+                g[i,0] = 1 + 10*(nx -j)+ sum(x[i, j : nx]**2 - 10*np.cos(4*np.pi*x[i, j+1 : nx]))
         else :
             for i in range(ne):
-                g[i,0] = 1 + 9 / (nx -j) * sum(x[i, j+1 : nx])**0.25
-                
+                g[i,0] = 1 + 9 / (nx -j) * sum(x[i, j : nx])**0.25
+   
         #h, more exactly : f2 = g * h
         if self.options["type"] ==1 or self.options["type"] ==4:
             for i in range(ne):
@@ -76,4 +76,4 @@ class ZDT(Problem):
             for i in range(ne):
                 f2[i,0] = g[i,0]*( 1 -np.sqrt(f1[i,0]/g[i,0]) - f1[i,0]/g[i,0]*np.sin(10*np.pi*f1[i,0]))
        
-        return [f1,f2]
+        return f1,f2 #problem class make of it an array anyway

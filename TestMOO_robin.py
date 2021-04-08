@@ -25,7 +25,7 @@ from pymoo.model.problem import Problem
 from pymoo.optimize import minimize
 from pymoo.visualization.scatter import Scatter
 
-#%% MOO problem definition
+#%% 1st MOO problem definition
 
 ndim = 2
 ndoe = 20 
@@ -65,7 +65,7 @@ for iny in range(ny):
 print("theta values for output ", 0, " = ",  list_t[0].optimal_theta)
 print("theta values for output ", 1, " = ",  list_t[1].optimal_theta)
 
-#%% Optimization
+#%% Optimization through model
 
 class MyProblem(Problem):
 
@@ -98,7 +98,7 @@ plot = Scatter()
 plot.add(res.F, color="red")
 plot.show()
 
-#%% Real Pareto front
+#%% 1st problem exact Pareto front
 
 class MyProblem_reel(Problem):
 
@@ -154,16 +154,19 @@ def PI(x, pareto_front , moyennes, sigma ):
     Returns
     -------
     pi_x : float
-        PI(x) : probabilité que x soit une amélioration.
+        PI(x) : probabilité que x soit une amélioration € [0,1]
     """
     m = len(pareto_front)
-    pi_x = norm.cdf((pareto_front[0][0] - moyennes[0](x))/sigma[0](x))
-    for i in range(1,m):
-        pi_x += ((norm.cdf((pareto_front[0][i+1] - moyennes[0](x))/sigma[0](x))
-                 - norm.cdf((pareto_front[0][i] - moyennes[0](x))/sigma[0](x)))
-                 * norm.cdf((pareto_front[1][i+1] - moyennes[1](x))/sigma[1](x)))
-    pi_x += (1 - norm.cdf((pareto_front[0][m] - moyennes[0](x))/sigma[0](x)))*norm.cdf((pareto_front[1][m] - moyennes[1](x))/sigma[1](x))
-    return pi_x
+    try :
+        pi_x = norm.cdf((pareto_front[0][0] - moyennes[0](x))/sigma[0](x))
+        for i in range(1,m):
+            pi_x += ((norm.cdf((pareto_front[0][i+1] - moyennes[0](x))/sigma[0](x))
+                     - norm.cdf((pareto_front[0][i] - moyennes[0](x))/sigma[0](x)))
+                     * norm.cdf((pareto_front[1][i+1] - moyennes[1](x))/sigma[1](x)))
+        pi_x += (1 - norm.cdf((pareto_front[0][m] - moyennes[0](x))/sigma[0](x)))*norm.cdf((pareto_front[1][m] - moyennes[1](x))/sigma[1](x))
+        return pi_x
+    except : #for training points having sigma = 0
+        return 0
 
 def best_points(Y):
     index = [] #indexes of the best points (Pareto)
@@ -203,24 +206,34 @@ def dominate_min(a,b):
         return False, True
     return False, False # same points
 
-#%% testons
+# testons
 Y = [ [6,9,3] , [1,1,11],[4,4,2]]
-print(dominate_min(Y[0], Y[1]))#false, FAlse
+print(dominate_min(Y[0], Y[1]))#false, False
 print(dominate_min(Y[0], Y[2]))#false, true
 print( best_points(Y))# 1,2
 
 #with arrays
 Y = [np.asarray(i) for i in  Y]
-print(dominate_min(Y[0], Y[1]))#false, FAlse
+print(dominate_min(Y[0], Y[1]))#false, False
 print(dominate_min(Y[0], Y[2]))#false, true
 print( best_points(Y))# 1,2
 
 aa = np.array([[2.,2.]])
-print([i.predict_values(aa)[0][0] for i in list_t])
+#print([i.predict_values(aa)[0][0] for i in list_t])
 
-#%% test PI
-
-
+Yy = [[0.45    ,   5.88251506],
+      [0.55    ,   0.55697145],#
+      [0.65    ,   2.50759323],
+      [0.75    ,   6.87371526],
+      [0.25    ,   5.54137477],
+      [0.35    ,   3.72052642],
+      [0.05    ,   2.84688711],#
+      [0.85    ,   0.9366706 ],
+      [0.15    ,   5.00527782],
+      [0.95    ,   5.78338178]]
+plt.scatter(np.transpose(np.asarray(Yy))[0],np.transpose(np.asarray(Yy))[1])
+plt.show()
+print(best_points(Yy))#seems good 1,6
 
 #%% Optimization loop incrementing the surrogates
 
@@ -326,5 +339,143 @@ plot.add(resultat.F, color="red")
 plot.show()
 
 
+#%% use of MOO module for 1st example
+from MOORobin.MOO import MOO
+ndim = 2
+ny = 2
+fun1 = Rosenbrock(ndim=ndim)
+fun2 = Branin(ndim=ndim)
+xlimits = np.array([[-2.0,2.0], [-2.0,2.0]])
+def objective(x):
+    return [fun1(x), fun2(x)]
 
+#setup
+class MyProblem_reel(Problem):
+    def __init__(self):
+        super().__init__(n_var=2,n_obj=2,n_constr=0,xl=np.array([-2.0, -2.0]),xu=np.array([2.0, 2.0]),elementwise_evaluation=True)
+    def _evaluate(self, x, out, *args, **kwargs):
+        xx = np.asarray(x).reshape(1, -1) #le modèle prend un array en entrée
+        f1 = fun1(xx)[0][0]
+        f2 = fun2(xx)[0][0]
+        out["F"] = [f1, f2]
+problem_exact = MyProblem_reel()
+moga = MOO(n_iter = 15,criterion = "GA", n_start = 15, xlimits = xlimits, n_gen=30, pop_size = 30)
+mopi = MOO(n_iter = 15,criterion = "PI", n_start = 15, xlimits = xlimits, n_gen=30, pop_size = 30)
+
+# run & plots
+plots_ = []
+res_exact = minimize(problem_exact,NSGA2(pop_size=100),("n_gen", 100),verbose=False)
+moga.optimize(objective)
+mopi.optimize(objective)
+plots_.append( np.array(moga.result.F[:]) )
+plots_.append( np.array(mopi.result.F[:]) )
+plots_.append( np.array(res_exact.F[:]) )
+plt.scatter(plots_[0][:,0], plots_[0][:,1], c = "green", label = "GA")
+plt.xlabel("f1 = Rosenbrock")
+plt.ylabel("f2 = Branin")
+plt.scatter(plots_[1][:,0], plots_[1][:,1], c = "red", label = "PI")
+plt.scatter(plots_[2][:,0], plots_[2][:,1], c = "blue", label = "True")
+plt.title("Methods comparation, niter = nstart = 15")
+plt.legend()
+plt.show()
+
+#%% ZDT with GA
+from MOORobin.MOO import MOO
+    
+xlimits = np.array([[0.,1.], [0.,1.]])
+
+mo = MOO(n_iter = 20,n_start = 20, xlimits = xlimits, criterion = "GA",n_gen=30, pop_size = 100)
+
+# ZDT
+import numpy as np
+from MOORobin.zdt import ZDT
+funf1 = ZDT()
+funf2 = ZDT(type=2)
+funf3 = ZDT(type=3)
+#funf4 = ZDT(type=4)
+#funf5 = ZDT(type=5)
+tests = [funf1,funf2,funf3]#,funf4,funf5]
+#testpt = np.array([[1,1],[1,1.2]])
+#print(funfun(testpt))
+from pymoo.visualization.scatter import Scatter
+plots = []
+for i in range(len(tests)):
+    mo.optimize(tests[i])
+    res = mo.result
+    plots.append( np.array(mo.result.F[:]) )
+plt.scatter(plots[0][:,0], plots[0][:,1], c = "green", label = "ZDT1")
+plt.xlabel("f1")
+plt.ylabel("f2")
+plt.scatter(plots[1][:,0], plots[1][:,1], c = "red", label = "ZDT2")
+plt.scatter(plots[2][:,0], plots[2][:,1], c = "blue", label = "ZDT3")
+plt.legend()
+plt.title("GA MOBOpt method, n_iter = 20, n_init = 20, ngen = 30, pop_size = 100")
+plt.xlim([0,1])
+plt.ylim([-1,1])
+plt.show()
+
+#%%ZDT with PI
+
+from MOORobin.MOO import MOO
+    
+xlimits = np.array([[0.,1.], [0.,1.]])
+
+mo_pi = MOO(n_iter = 2,n_start = 10, xlimits = xlimits, criterion = "PI", n_gen = 30,pop_size=30)
+
+plots_pi = []
+for i in range(len(tests)):
+    mo_pi.optimize(tests[i])
+    res = mo_pi.result
+    titre = "ZDT "+str(i+1)+ " using PI"
+    plots_pi.append( np.array(mo.result.F[:]) )
+plt.scatter(plots_pi[0][:,0], plots_pi[0][:,1], c = "green", label = "ZDT1")
+plt.xlabel("f1")
+plt.ylabel("f2")
+plt.scatter(plots_pi[1][:,0], plots_pi[1][:,1], c = "red", label = "ZDT2")
+plt.scatter(plots_pi[2][:,0], plots_pi[2][:,1], c = "blue", label = "ZDT3")
+plt.legend()
+plt.title("Methode PI, n_iter = n_init = 10")
+#plt.xlim([0,1])
+#plt.ylim([-1,1])
+plt.show()
+
+#%% ZDT exact Pareto front
+
+from MOORobin.zdt import ZDT
+funf1 = ZDT()
+funf2 = ZDT(type=2)
+funf3 = ZDT(type=3)
+tests = [funf1,funf2,funf3]
+plots = []
+for i in range(len(tests)):
+    print("optimizing zdt ", i+1)
+    objectives = tests[i]
+    class MyProblem_reel(Problem):
+
+        def __init__(self):
+            super().__init__(n_var=2,
+                             n_obj=2,
+                             n_constr=0,
+                             xl=np.array([0.,0.]),
+                             xu=np.array([1.0, 1.0]),
+                             elementwise_evaluation=True)
+    
+        def _evaluate(self, x, out, *args, **kwargs):
+            xx = np.asarray(x).reshape(1, -1) #le modèle prend un array en entrée
+            out["F"] = [objectives(xx)[0][0][0], objectives(xx)[1][0][0]]
+    zdt_exact = MyProblem_reel()
+    algorithm_bis = NSGA2(pop_size=100)    
+    res_exact = minimize(zdt_exact,algorithm_bis,("n_gen", 100))
+    plots.append( res_exact.F )
+
+plt.scatter(plots[0][:,0], plots[0][:,1], c = "green", label = "ZDT1")
+plt.xlabel("f1")
+plt.ylabel("f2")
+plt.scatter(plots[1][:,0], plots[1][:,1], c = "red", label = "ZDT2")
+plt.scatter(plots[2][:,0], plots[2][:,1], c = "blue", label = "ZDT3")
+plt.legend()
+plt.title("Expected Pareto front")
+#plt.xlim([0,1])
+#plt.ylim([0,1])
+plt.show()
 
