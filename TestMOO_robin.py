@@ -414,32 +414,34 @@ plt.xlim([0,1])
 plt.ylim([-1,1])
 plt.show()
 
-#%%ZDT with PI
+#%% ZDT with PI
 
 from MOORobin.MOO import MOO
     
 xlimits = np.array([[0.,1.], [0.,1.]])
-
-mo_pi = MOO(n_iter = 2,n_start = 10, xlimits = xlimits, criterion = "PI", n_gen = 30,pop_size=30)
+n_start = 20
+n_iter = 30
+mo_pi = MOO(n_iter = n_iter,n_start = n_start, xlimits = xlimits, criterion = "PI", n_gen = 100,pop_size=100)
 
 plots_pi = []
 for i in range(len(tests)):
     mo_pi.optimize(tests[i])
     res = mo_pi.result
     titre = "ZDT "+str(i+1)+ " using PI"
-    plots_pi.append( np.array(mo.result.F[:]) )
-plt.scatter(plots_pi[0][:,0], plots_pi[0][:,1], c = "green", label = "ZDT1")
+    plots_pi.append( np.array(mo_pi.result.F[:]) )
+plt.scatter(plots_pi[0][:,0], plots_pi[0][:,1], c = "blue", label = "ZDT1")
 plt.xlabel("f1")
 plt.ylabel("f2")
 plt.scatter(plots_pi[1][:,0], plots_pi[1][:,1], c = "red", label = "ZDT2")
-plt.scatter(plots_pi[2][:,0], plots_pi[2][:,1], c = "blue", label = "ZDT3")
+plt.scatter(plots_pi[2][:,0], plots_pi[2][:,1], c = "green", label = "ZDT3")
 plt.legend()
-plt.title("Methode PI, n_iter = n_init = 10")
-#plt.xlim([0,1])
-#plt.ylim([-1,1])
+titre = "Methode PI, n_iter="+str(n_iter)+", n_init="+str(n_start)
+plt.title(titre)
+plt.xlim([0,1.2])
+plt.ylim([-1,2])
 plt.show()
 
-#%% ZDT exact Pareto front
+#%% ZDT with NSGA2
 
 from MOORobin.zdt import ZDT
 funf1 = ZDT()
@@ -474,8 +476,64 @@ plt.ylabel("f2")
 plt.scatter(plots[1][:,0], plots[1][:,1], c = "red", label = "ZDT2")
 plt.scatter(plots[2][:,0], plots[2][:,1], c = "blue", label = "ZDT3")
 plt.legend()
-plt.title("Expected Pareto front")
+plt.title("Pareto front with NSGA2")
 #plt.xlim([0,1])
 #plt.ylim([0,1])
 plt.show()
 
+#%% scalarization
+from smt.applications.ego import EGO
+from smt.sampling_methods import LHS
+import time
+
+ndim =2
+fun1 = Rosenbrock(ndim=ndim)
+fun2 = Branin(ndim=ndim)
+xlimits = np.array([[-2.0,2.0], [-2.0,2.0]])
+ndoe = 10 
+n_iter = 20
+points = 150
+sampling = LHS(xlimits=xlimits)
+xdoe = sampling(ndoe)
+f1res,f2res = [],[]
+alphas = np.linspace(0,1,points)
+start_time = time.time()
+ego = EGO(n_iter=n_iter, criterion='EI', xdoe=xdoe, xlimits=xlimits)
+for alp in alphas:    
+    def objective1D(x, alpha=alp):
+        return alpha*fun1(x) + (1-alpha)*fun2(x)
+    x_opt, y_opt, ind_best, x_data, y_data = ego.optimize(objective1D)
+    f1res.append(fun1(np.asarray([x_opt]))[0][0])
+    f2res.append(fun2(np.asarray([x_opt]))[0][0])
+
+print("--- %s seconds ---" % (time.time() - start_time))
+plt.scatter(f1res, f2res, c = "green", label = "scalarization")
+plt.xlabel("f1 = Rosenbrock")
+plt.ylabel("f2 =  Branin")
+plt.legend()
+tire = str(points)+" values of alpha, time taken : "+str(time.time() - start_time)+" s"
+plt.title(tire)
+plt.show()        
+        
+#%% ZDT explicit front     
+
+from MOORobin.zdt import ZDT
+funf1 = ZDT()
+funf2 = ZDT(type=2)
+funf3 = ZDT(type=3)
+npoints = 300
+tests = [funf1,funf2,funf3]
+plotss = []
+for i in range(len(tests)):
+    x,y = tests[i].pareto(npoints)
+    plotss.append(y)
+plt.scatter(plotss[0][0], plotss[0][1], c = "green", label = "ZDT1")
+plt.xlabel("f1")
+plt.ylabel("f2")
+plt.scatter(plotss[1][0], plotss[1][1], c = "red", label = "ZDT2")
+plt.scatter(plotss[2][0], plotss[2][1], c = "blue", label = "ZDT3")
+plt.legend()
+plt.title("Pareto analytic")
+plt.show()
+
+#%% mesures de précision des méthodes

@@ -38,7 +38,7 @@ class MOO(SurrogateBasedApplication):
         declare = self.options.declare
 
         declare("fun", None, types=FunctionType, desc="Function to minimize")
-        declare("criterion","GA",types=str,values=["PI", "GA"],
+        declare("criterion","PI",types=str,values=["PI", "GA"],
             desc="criterion for next evaluation point determination: Expected Improvement, \
             Surrogate-Based Optimization or genetic algo point",)
         declare("n_iter", 10, types=int, desc="Number of optimizer steps")
@@ -57,8 +57,21 @@ class MOO(SurrogateBasedApplication):
             desc="number generations for the genetic algorithm",)
         declare("q",0.5,types=float,
             desc="importance ration of desgn space in comparation to objective space when chosing a point with GA",)
+        declare("verbose", False, types=bool, desc="Print computation information")
         
     def optimize(self, fun):
+        """
+        Optimize the multi-objective function fun. At the end, the object's item
+        .modeles is a SMT surrogate_model object with the most precise fun's model
+        .result is the result of its optimization thanks to NSGA2
+        
+        Parameters
+        ----------
+        fun : function
+            function taking x=ndarray[ne,ndim], 
+            returning y = [ndarray[ne, 1],ndarray[ne, 1],...]
+            where y[i][j][0] = fi(xj).
+        """
         x_data, y_data = self._setup_optimizer(fun)
         #n_parallel = self.options["n_parallel"]
         n_gen = self.options["n_gen"]
@@ -75,7 +88,7 @@ class MOO(SurrogateBasedApplication):
         
         for k in range(self.options["n_iter"]):
             
-            print("iteration ",k+1)
+            self.log("iteration ",k+1)
 
             # find next best x-coord point to evaluate
             new_x = self._find_best_point()                
@@ -88,9 +101,9 @@ class MOO(SurrogateBasedApplication):
             
             self.modelize(x_data, y_data)
             
-        print("Model is well refined, NSGA2 is running...")
+        self.log("Model is well refined, NSGA2 is running...")
         self.result = minimize(self.probleme,NSGA2(pop_size=pop_size),("n_gen",n_gen),verbose=False)
-        print("Optimization done, get the front with .result.F and the set with .result.X")
+        self.log("Optimization done, get the front with .result.F and the set with .result.X")
     #retourner x, f ?
         
     def _setup_optimizer(self,fun):
@@ -121,6 +134,13 @@ class MOO(SurrogateBasedApplication):
             self.modeles.append(t)
 
     def def_prob(self):
+        """
+        Creates the pymoo Problem object with the surrogate as objective
+
+        Returns
+        -------
+        MyProblem : pymoo.problem
+        """
         n_obj = self.ny
         n_var = self.ndim
         xbounds = self.options["xlimits"]
@@ -141,8 +161,17 @@ class MOO(SurrogateBasedApplication):
                         
         return MyProblem()                
         
-    def _find_best_point(self): 
+    def _find_best_point(self):
+        """
+        Selects the best point to refine the model, according to the chosen method
+
+        Returns
+        -------
+        ndarray
+            next point for the model update.
+        """
         criterion = self.options["criterion"]
+        
         if criterion == "GA" :
             res = minimize(self.probleme,
                    NSGA2(pop_size=self.options["pop_size"]),
@@ -267,8 +296,8 @@ class MOO(SurrogateBasedApplication):
         x = np.asarray(x).reshape(1, -1)
         sig1, sig2 = variances[0](x)[0][0]**0.5, variances[1](x)[0][0]**0.5
         moy1, moy2 = moyennes[0](x)[0][0], moyennes[1](x)[0][0]
-        print(x)
-        print("sigma1&2",sig1, sig2)
+        #print(x)
+        #print("sigma1&2",sig1, sig2)
         #print("pareto front point 1" , pareto_front)
         #print("moyenne 1 puis 2 ", moy1, moy2)
         m = len(pareto_front)
@@ -279,11 +308,13 @@ class MOO(SurrogateBasedApplication):
                          - norm.cdf((pareto_front[i][0] - moy1)/sig1))
                          * norm.cdf((pareto_front[i+1][1] - moy2)/sig2))
             pi_x += (1 - norm.cdf((pareto_front[m-1][0] - moy1)/sig1))*norm.cdf((pareto_front[m-1][1] - moy2)/sig2)
-            print("pi_x = ",pi_x)
+            #print("pi_x = ",pi_x)
             return pi_x
         except : #for training points -> having variances = 0
             print("training x called : ", x)
             return 0
         
-        
+    def log(self, msg):
+        if self.options["verbose"]:
+            print(msg)
         
